@@ -1,0 +1,46 @@
+name: Build and Push 
+on: # rebuild any PRs and main branch changes
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  detect-folders:
+    name: Detect folders with .devcontainer
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Find folders with .devcontainer
+        id: set-matrix
+        run: |
+          folders=$(find . -type d -name .devcontainer | sed 's|^\./||' | sed 's|/\.devcontainer||')
+          json=$(jq -nc --argjson arr "$(echo "$folders" | jq -R . | jq -s .)" '{"project": $arr}')
+          echo "matrix=$json" >> $GITHUB_OUTPUT
+
+  build:
+    runs-on: ubuntu-latest
+    needs: detect-folders
+    strategy:
+      matrix: ${{ fromJson(needs.detect-folders.outputs.matrix) }}            
+    steps:
+      - name: Checkout (GitHub)
+        uses: actions/checkout@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2 
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Pre-build dev container image
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ghcr.io/${{ github.repository_owner }}/${{ matrix.project }}
+          cacheFrom: ghcr.io/${{ github.repository_owner }}/${{ matrix.project }}
+          push: always
